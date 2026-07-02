@@ -94,7 +94,7 @@ func (k *Keeper) AdaptCodeHash(ctx sdk.Context, addr common.Address) common.Hash
 	}
 	acct := k.accountKeeper.GetAccount(ctx, sdk.AccAddress(addr.Bytes()))
 	if legacy, ok := acct.(interface{ GetCodeHash() common.Hash }); ok {
-		if h := legacy.GetCodeHash(); (h != common.Hash{}) {
+		if h := legacy.GetCodeHash(); !types.IsEmptyCodeHash(h.Bytes()) {
 			return h
 		}
 	}
