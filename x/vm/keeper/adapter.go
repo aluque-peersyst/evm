@@ -8,7 +8,12 @@ import (
 	legacytypes "github.com/cosmos/evm/rpc/types/legacy"
 	"github.com/cosmos/evm/x/vm/types"
 
+	"cosmossdk.io/store/prefix"
+
 	"github.com/cosmos/cosmos-sdk/codec"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const legacyExtraEIPPrefix = "ethereum_"
@@ -77,4 +82,21 @@ func AdaptUnmarshalParams(cdc codec.BinaryCodec, bz []byte) (types.Params, error
 		// HistoryServeWindow and ExtendedDenomOptions are new fields that don't
 		// exist in legacy — Go zero values (0 and nil) are correct defaults.
 	}, nil
+}
+
+// AdaptCodeHash returns a contract's code hash from the KeyPrefixCodeHash
+// index, falling back to the pre-v9 layout where the hash lived on the
+// EthAccount.
+func (k *Keeper) AdaptCodeHash(ctx sdk.Context, addr common.Address) common.Hash {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixCodeHash)
+	if bz := store.Get(addr.Bytes()); len(bz) != 0 {
+		return common.BytesToHash(bz)
+	}
+	acct := k.accountKeeper.GetAccount(ctx, sdk.AccAddress(addr.Bytes()))
+	if legacy, ok := acct.(interface{ GetCodeHash() common.Hash }); ok {
+		if h := legacy.GetCodeHash(); !types.IsEmptyCodeHash(h.Bytes()) {
+			return h
+		}
+	}
+	return common.BytesToHash(types.EmptyCodeHash)
 }

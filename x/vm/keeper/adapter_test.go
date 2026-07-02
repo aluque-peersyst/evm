@@ -3,14 +3,19 @@ package keeper_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	legacytypes "github.com/cosmos/evm/rpc/types/legacy"
 	vmkeeper "github.com/cosmos/evm/x/vm/keeper"
 	vmtypes "github.com/cosmos/evm/x/vm/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 func makeCodec() codec.BinaryCodec {
@@ -145,4 +150,92 @@ func TestAdaptUnmarshalParamsInvalidBytes(t *testing.T) {
 	_, err := vmkeeper.AdaptUnmarshalParams(cdc, []byte{0xFF, 0xFE, 0xFD})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "neither current nor legacy schema matched")
+}
+
+// legacyAccount stands in for a pre-v9 Ethermint EthAccount: a base account
+// that additionally exposes a code hash via GetCodeHash.
+type legacyAccount struct {
+	*authtypes.BaseAccount
+	codeHash common.Hash
+}
+
+func (a legacyAccount) GetCodeHash() common.Hash { return a.codeHash }
+
+func (suite *KeeperTestSuite) TestAdaptCodeHash() {
+	contractHash := common.HexToHash("0x1122334455667788990011223344556677889900112233445566778899001122")
+	emptyHash := common.BytesToHash(vmtypes.EmptyCodeHash)
+
+	legacyWithCodeHash := func(addr common.Address, h common.Hash) sdk.AccountI {
+		return legacyAccount{
+			BaseAccount: authtypes.NewBaseAccountWithAddress(sdk.AccAddress(addr.Bytes())),
+			codeHash:    h,
+		}
+	}
+
+	testCases := []struct {
+		name     string
+		addr     common.Address
+		malleate func(addr common.Address)
+		expected common.Hash
+	}{
+		{
+			// Post-v9 layout: the hash lives in the KeyPrefixCodeHash index.
+			"code hash present in index",
+			common.HexToAddress("0x01"),
+			func(addr common.Address) {
+				suite.vmKeeper.SetCodeHash(suite.ctx, addr.Bytes(), contractHash.Bytes())
+			},
+			contractHash,
+		},
+		{
+			// Pre-v9 fallback: the hash lives on the legacy EthAccount.
+			"index miss, legacy account with contract code hash",
+			common.HexToAddress("0x02"),
+			func(addr common.Address) {
+				suite.accKeeper.On("GetAccount", mock.Anything, mock.Anything).
+					Return(legacyWithCodeHash(addr, contractHash)).Maybe()
+			},
+			contractHash,
+		},
+		{
+			// A legacy EOA carries the empty code hash (keccak256(nil)), which
+			// must be treated as empty rather than returned as a real hash.
+			"index miss, legacy account with empty code hash",
+			common.HexToAddress("0x03"),
+			func(addr common.Address) {
+				suite.accKeeper.On("GetAccount", mock.Anything, mock.Anything).
+					Return(legacyWithCodeHash(addr, emptyHash)).Maybe()
+			},
+			emptyHash,
+		},
+		{
+			// Post-v9 accounts are plain base accounts with no GetCodeHash.
+			"index miss, non-legacy base account",
+			common.HexToAddress("0x04"),
+			func(addr common.Address) {
+				suite.accKeeper.On("GetAccount", mock.Anything, mock.Anything).
+					Return(authtypes.NewBaseAccountWithAddress(sdk.AccAddress(addr.Bytes()))).Maybe()
+			},
+			emptyHash,
+		},
+		{
+			"index miss, account does not exist",
+			common.HexToAddress("0x05"),
+			func(addr common.Address) {
+				suite.accKeeper.On("GetAccount", mock.Anything, mock.Anything).
+					Return(nil).Maybe()
+			},
+			emptyHash,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			suite.accKeeper.ExpectedCalls = nil
+			tc.malleate(tc.addr)
+
+			got := suite.vmKeeper.AdaptCodeHash(suite.ctx, tc.addr)
+			suite.Require().Equal(tc.expected, got)
+		})
+	}
 }

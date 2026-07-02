@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### BUG FIXES
+
+- Fix historical `eth_getCode`/`eth_call` returning empty results for contracts stored in the legacy Ethermint layout: `GetCodeHash` now falls back to the `EthAccount` code hash when the code-hash index misses.
+
 ## v0.5.1
 
 ### DEPENDENCIES
