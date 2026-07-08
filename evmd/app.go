@@ -17,6 +17,7 @@ import (
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native"
 
 	abci "github.com/cometbft/cometbft/abci/types"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	dbm "github.com/cosmos/cosmos-db"
 	evmante "github.com/cosmos/evm/ante"
@@ -37,6 +38,7 @@ import (
 	feemarkettypes "github.com/cosmos/evm/x/feemarket/types"
 	ibccallbackskeeper "github.com/cosmos/evm/x/ibc/callbacks/keeper"
 
+	evmlegacy "github.com/cosmos/evm/legacy"
 	"github.com/cosmos/evm/x/precisebank"
 	precisebankkeeper "github.com/cosmos/evm/x/precisebank/keeper"
 	precisebanktypes "github.com/cosmos/evm/x/precisebank/types"
@@ -191,6 +193,10 @@ type EVMD struct {
 	Erc20Keeper       erc20keeper.Keeper
 	PreciseBankKeeper precisebankkeeper.Keeper
 	EVMMempool        *evmmempool.ExperimentalEVMMempool
+
+	// legacyAdapter reads pre-v9 (Ethermint) state for historical queries; it
+	// must be loaded after the multistore (see LoadHeight and NewExampleApp).
+	legacyAdapter *evmlegacy.LegacyAdapter
 
 	// the module manager
 	ModuleManager      *module.Manager
@@ -421,11 +427,14 @@ func NewExampleApp(
 	app.EvidenceKeeper = *evidenceKeeper
 
 	// Cosmos EVM keepers
+
+	app.legacyAdapter = evmlegacy.NewLegacyAdapter(appCodec, app.UpgradeKeeper, app.AccountKeeper)
+
 	app.FeeMarketKeeper = feemarketkeeper.NewKeeper(
 		appCodec, authtypes.NewModuleAddress(govtypes.ModuleName),
 		keys[feemarkettypes.StoreKey],
 		tkeys[feemarkettypes.TransientKey],
-	)
+	).WithLegacyAdapter(app.legacyAdapter)
 
 	// Set up PreciseBank keeper
 	//
@@ -465,7 +474,7 @@ func NewExampleApp(
 			app.SlashingKeeper,
 			appCodec,
 		),
-	)
+	).WithLegacyAdapter(app.legacyAdapter)
 
 	app.Erc20Keeper = erc20keeper.NewKeeper(
 		keys[erc20types.StoreKey],
@@ -477,7 +486,6 @@ func NewExampleApp(
 		app.StakingKeeper,
 		&app.TransferKeeper,
 	)
-
 	// instantiate IBC transfer keeper AFTER the ERC-20 keeper to use it in the instantiation
 	app.TransferKeeper = transferkeeper.NewKeeper(
 		appCodec,
@@ -759,6 +767,12 @@ func NewExampleApp(
 			logger.Error("error on loading last version", "err", err)
 			os.Exit(1)
 		}
+		// Read the v9 upgrade height once from committed state so the legacy
+		// adapter can dispatch historical reads without a per-read lookup.
+		if err := app.legacyAdapter.Load(app.NewUncachedContext(true, cmtproto.Header{})); err != nil {
+			logger.Error("error loading legacy adapter upgrade height", "err", err)
+			os.Exit(1)
+		}
 	}
 
 	return app
@@ -850,7 +864,13 @@ func (app *EVMD) PreBlocker(ctx sdk.Context, _ *abci.RequestFinalizeBlock) (*sdk
 
 // LoadHeight loads a particular height
 func (app *EVMD) LoadHeight(height int64) error {
-	return app.LoadVersion(height)
+	if err := app.LoadVersion(height); err != nil {
+		return err
+	}
+	// The adapter reads the v9 upgrade record from the state mounted at
+	// `height`; at pre-v9 heights the record does not exist yet, so exporting
+	// legacy-layout state is unsupported.
+	return app.legacyAdapter.Load(app.NewUncachedContext(true, cmtproto.Header{}))
 }
 
 // LegacyAmino returns EVMD's amino codec.

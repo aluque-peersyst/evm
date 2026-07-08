@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"github.com/cosmos/evm/legacy"
 	"github.com/cosmos/evm/x/feemarket/types"
 
 	"cosmossdk.io/log"
@@ -19,6 +20,9 @@ type Keeper struct {
 	transientKey storetypes.StoreKey
 	// the address capable of executing a MsgUpdateParams message. Typically, this should be the x/gov module account.
 	authority sdk.AccAddress
+
+	// legacyAdapter decodes pre-v9 (Ethermint) params
+	legacyAdapter *legacy.LegacyAdapter
 }
 
 // NewKeeper generates new fee market module keeper
@@ -36,6 +40,12 @@ func NewKeeper(
 		authority:    authority,
 		transientKey: transientKey,
 	}
+}
+
+// WithLegacyAdapter returns the keeper with the pre-v9 params adapter set.
+func (k Keeper) WithLegacyAdapter(legacyAdapter *legacy.LegacyAdapter) Keeper {
+	k.legacyAdapter = legacyAdapter
+	return k
 }
 
 // Logger returns a module-specific logger.

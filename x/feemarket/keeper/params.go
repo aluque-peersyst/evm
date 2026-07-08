@@ -15,6 +15,13 @@ func (k Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 	if bz == nil {
 		return types.DefaultParams()
 	}
+	if k.legacyAdapter != nil && k.legacyAdapter.IsLegacy(ctx) {
+		params, err := k.legacyAdapter.UnmarshalFeeMarketParams(bz)
+		if err != nil {
+			panic(err)
+		}
+		return params
+	}
 	k.cdc.MustUnmarshal(bz, &params)
 	return params
 }

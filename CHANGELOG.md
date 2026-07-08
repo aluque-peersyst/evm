@@ -4,7 +4,7 @@
 
 ### BUG FIXES
 
-- Fix historical `eth_getCode`/`eth_call` returning empty results for contracts stored in the legacy Ethermint layout: `GetCodeHash` now falls back to the `EthAccount` code hash when the code-hash index misses.
+- Fix historical queries reading pre-v9 state: EVM params, contract code hashes, and feemarket params (`base_fee` was silently rescaled by 10^-18) are now decoded with the legacy Ethermint layout below the chain's applied v9 upgrade height, read once at startup from the x/upgrade store by `legacy.LegacyAdapter`. Chains carrying legacy state must wire the adapter via `WithLegacyAdapter` on the EVM and feemarket keepers and call `Load` once the multistore is loaded (`IsLegacy` panics on an unloaded adapter); chains without it keep upstream behavior.
 
 ## v0.5.1
 

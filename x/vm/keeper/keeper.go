@@ -12,6 +12,7 @@ import (
 	ethparams "github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
+	"github.com/cosmos/evm/legacy"
 	evmmempool "github.com/cosmos/evm/mempool"
 	"github.com/cosmos/evm/utils"
 	"github.com/cosmos/evm/x/vm/statedb"
@@ -85,6 +86,9 @@ type Keeper struct {
 	// defaultEvmCoinInfo is the default EVM coin info used when evmCoinInfo is not initialized in the state,
 	// mainly for historical queries.
 	defaultEvmCoinInfo types.EvmCoinInfo
+
+	// legacyAdapter reads pre-v9 (Ethermint) state layouts
+	legacyAdapter *legacy.LegacyAdapter
 }
 
 // NewKeeper generates new evm module keeper
@@ -147,6 +151,12 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 func (k *Keeper) WithDefaultEvmCoinInfo(coinInfo types.EvmCoinInfo) *Keeper {
 	k.defaultEvmCoinInfo = coinInfo
 	types.SetDefaultEvmCoinInfo(coinInfo)
+	return k
+}
+
+// WithLegacyAdapter sets the adapter that reads pre-v9 (Ethermint) state layouts.
+func (k *Keeper) WithLegacyAdapter(legacyAdapter *legacy.LegacyAdapter) *Keeper {
+	k.legacyAdapter = legacyAdapter
 	return k
 }
 

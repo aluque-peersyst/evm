@@ -55,7 +55,15 @@ func (k *Keeper) GetFastState(ctx sdk.Context, addr common.Address, key common.H
 
 // GetCodeHash loads the code hash from the database for the given contract address.
 func (k *Keeper) GetCodeHash(ctx sdk.Context, addr common.Address) common.Hash {
-	return k.AdaptCodeHash(ctx, addr)
+	if k.legacyAdapter != nil && k.legacyAdapter.IsLegacy(ctx) {
+		return k.legacyAdapter.GetCodeHash(ctx, addr)
+	}
+
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixCodeHash)
+	if bz := store.Get(addr.Bytes()); len(bz) != 0 {
+		return common.BytesToHash(bz)
+	}
+	return common.BytesToHash(types.EmptyCodeHash)
 }
 
 // IterateContracts iterates over all smart contract addresses in the EVM keeper and

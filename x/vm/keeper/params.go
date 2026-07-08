@@ -20,11 +20,15 @@ func (k Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 	if bz == nil {
 		return params
 	}
-	params, err := AdaptUnmarshalParams(k.cdc, bz)
-	if err != nil {
-		panic(err)
+	if k.legacyAdapter != nil && k.legacyAdapter.IsLegacy(ctx) {
+		params, err := k.legacyAdapter.UnmarshalLegacyParams(bz)
+		if err != nil {
+			panic(err)
+		}
+		return params
 	}
-	return
+	k.cdc.MustUnmarshal(bz, &params)
+	return params
 }
 
 // SetParams sets the EVM params each in their individual key for better get performance
